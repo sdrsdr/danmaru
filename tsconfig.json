@@ -1,0 +1,28 @@
+{
+	"compilerOptions": {
+
+		"target": "es2019",
+		"module": "commonjs",
+		"moduleResolution": "node",
+		"esModuleInterop": true,
+
+		"listEmittedFiles":true,
+
+		"strict": true,
+
+		"allowJs": false,
+		"strictNullChecks": true,
+		"alwaysStrict":true,
+		"noImplicitAny":true,
+		"noImplicitThis":true,
+		"noImplicitReturns": true,
+		"declaration": true,
+		"noFallthroughCasesInSwitch":true,
+		"lib": ["ES2019"],
+		"outDir": ".",
+	},
+	"include": [
+		"./src/*.ts",
+	],
+	"exclude": []
+}
