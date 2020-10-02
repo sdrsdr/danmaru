@@ -83,6 +83,7 @@ export interface logger_t {
 	info:logfunction_t;
 	warn:logfunction_t;
 	error:logfunction_t;
+	mark:logfunction_t;
 }
 
 
@@ -101,6 +102,24 @@ export interface logfunction_t {
 
 export function nologfunction(message: any, ...args: any[]){
 
+}
+export function log_all():logger_t {
+	return {
+		debug:console.log,
+		info:console.log,
+		warn:console.log,
+		error:console.log,
+		mark:console.log,
+	}
+}
+export function log_none():logger_t {
+	return {
+		debug:nologfunction,
+		info:nologfunction,
+		warn:nologfunction,
+		error:nologfunction,
+		mark:nologfunction,
+	}
 }
 
 export const codes={
@@ -325,7 +344,8 @@ let nolog:logger_t={
 	debug:nologfunction,
 	info:nologfunction,
 	warn:nologfunction,
-	error:nologfunction
+	error:nologfunction,
+	mark:nologfunction,
 }
 
 
