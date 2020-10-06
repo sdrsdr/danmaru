@@ -17,10 +17,21 @@ compose(
 			let a=req.full_url.searchParams.get('a');
 			if (a==undefined) {
 				resp.simple_response(codes.BAD_REQ,"no a= in url",undefined,"MISSING PARAM");
+				return;
+			}
+			if (a=='addhj') {
+				resp.json_response(codes.OK,{say:'do: a='+a,method:req.method},{'X-AddH':"json"});
+				return;
+			}
+			if (a=='addhs') {
+				resp.simple_response(codes.OK,'do: a='+a+' method='+req.method,{'X-AddH':"simple"});
+				return;
 			}
 			resp.json_response(codes.OK,{say:'do: a='+a,method:req.method});
+		}},
+		{prefix:"/limpost", m:["POST"], max_body_size:9, do: (req,resp)=>{
 		}}
-	],{log, auto_handle_OPTIONS:true, auto_headers:{"Access-Control-Allow-Origin":"*"}}
+		],{log, auto_handle_OPTIONS:true, auto_headers:{"Access-Control-Allow-Origin":"*"}, max_body_size:10}
 );
 
 beforeAll((done)=>{
@@ -54,6 +65,20 @@ test('do?a=nothing via GET', async (done) => {
 	}
 });
 
+
+test('do?a=nothing via POST+DATA', async (done) => {
+	try {
+		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890"});
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
+		const text=await res.text();
+		expect(text).toBe('{"say":"do: a=nothing","method":"POST"}');
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
 test('do via GET', async (done) => {
 	try {
 		let res=await fetch(test_fetch_prefix+'do?');
@@ -65,6 +90,36 @@ test('do via GET', async (done) => {
 		done (err);
 	}
 });
+
+test('do?a=addhs via GET', async (done) => {
+	try {
+		let res=await fetch(test_fetch_prefix+'do?a=addhs');
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
+		expect(res.headers.get('X-AddH')).toBe('simple');
+		const text=await res.text();
+		expect(text).toBe('do: a=addhs method=GET');
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
+test('do?a=addhj via GET', async (done) => {
+	try {
+		let res=await fetch(test_fetch_prefix+'do?a=addhj');
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
+		expect(res.headers.get('X-AddH')).toBe('json');
+		const text=await res.text();
+		expect(text).toBe('{"say":"do: a=addhj","method":"GET"}');
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
+
 
 /*
 test('unknown via GET', async (done) => {
