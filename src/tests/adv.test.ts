@@ -3,7 +3,7 @@ import * as http  from 'http';
 import {compose,log_all,log_none,sane_options_GET_API,codes} from '../index';
 import fetch from 'node-fetch';
 
-const test_port=Math.floor(41000+999*Math.random());
+const test_port=Math.floor(43000+999*Math.random());
 const test_fetch_prefix="http://127.0.0.1:"+test_port+'/';
 
 //const log=log_all();
@@ -13,16 +13,14 @@ const server= new http.Server ();
 
 compose(
 	server,[
-		{prefix:"/hello?", do: (req,resp)=>{
-			let who=req.full_url.searchParams.get('who')??"<who param not found in searchParams>";
-			resp.simple_response(codes.OK,'Hello '+who+'! method: '+req.method);
-		}},
-		{prefix:"/hello_json?", m:["GET"], do: (req,resp)=>{
-			let who=req.full_url.searchParams.get('who')??"<who param not found in searchParams>";
-			log.mark("Hello "+who+" of JSON!");
-			resp.json_response(codes.OK,{say:'Hello '+who+' of JSON',method:req.method});
+		{prefix:"/do?", m:["GET","POST"], do: (req,resp)=>{
+			let a=req.full_url.searchParams.get('a');
+			if (a==undefined) {
+				resp.simple_response(codes.BAD_REQ,"no a= in url",undefined,"MISSING PARAM");
+			}
+			resp.json_response(codes.OK,{say:'do: a='+a,method:req.method});
 		}}
-	],{log, auto_handle_OPTIONS:true}
+	],{log, auto_handle_OPTIONS:true, auto_headers:{"Access-Control-Allow-Origin":"*"}}
 );
 
 beforeAll((done)=>{
@@ -43,18 +41,32 @@ afterAll((done)=>{
 	});
 })
 	
-test('hello world via GET', async (done) => {
+test('do?a=nothing via GET', async (done) => {
 	try {
-		let res=await fetch(test_fetch_prefix+'hello?who=world');
+		let res=await fetch(test_fetch_prefix+'do?a=nothing');
 		expect(res.status).toBe(200);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		const text=await res.text();
-		expect(text).toBe('Hello world! method: GET');
+		expect(text).toBe('{"say":"do: a=nothing","method":"GET"}');
 		done();
 	} catch (err) {
 		done (err);
 	}
 });
 
+test('do via GET', async (done) => {
+	try {
+		let res=await fetch(test_fetch_prefix+'do?');
+		expect(res.status).toBe(codes.BAD_REQ);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
+		expect(res.statusText).toBe('MISSING PARAM');
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
+/*
 test('unknown via GET', async (done) => {
 	try {
 		let res=await fetch(test_fetch_prefix+'unknown');
@@ -114,3 +126,4 @@ test('hello world via POST', async (done) => {
 		done (err);
 	}
 });
+*/
