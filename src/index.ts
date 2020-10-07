@@ -103,6 +103,7 @@ export interface logfunction_t {
 export function nologfunction(message: any, ...args: any[]){
 
 }
+
 export function log_all():logger_t {
 	return {
 		debug:console.log,

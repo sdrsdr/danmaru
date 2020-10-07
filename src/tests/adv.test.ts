@@ -20,14 +20,18 @@ compose(
 				return;
 			}
 			if (a=='addhj') {
-				resp.json_response(codes.OK,{say:'do: a='+a,method:req.method},{'X-AddH':"json"});
+				resp.json_response(codes.OK,{say:'do: a='+a,method:req.method},{'X-AddH':"json",'Content-Type': 'application/json; charset=UTF-8; custom=data'});
 				return;
 			}
 			if (a=='addhs') {
 				resp.simple_response(codes.OK,'do: a='+a+' method='+req.method,{'X-AddH':"simple"});
 				return;
 			}
-			resp.json_response(codes.OK,{say:'do: a='+a,method:req.method});
+			if (req.method=='POST') {
+				resp.json_response(codes.OK,{say:'do: a='+a,method:req.method,postbody:req.body_string});
+			} else {
+				resp.json_response(codes.OK,{say:'do: a='+a,method:req.method});
+			}
 		}},
 		{prefix:"/limpost", m:["POST"], max_body_size:9, do: (req,resp)=>{
 		}}
@@ -66,13 +70,36 @@ test('do?a=nothing via GET', async (done) => {
 });
 
 
-test('do?a=nothing via POST+DATA', async (done) => {
+test('do?a=nothing via POST+LARGE DATA', async (done) => {
+	try {
+		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890A"});
+		expect(res.status).toBe(400);
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
+test('do?a=nothing via POST+SMALL DATA', async (done) => {
+	try {
+		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"123456789"});
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
+		const text=await res.text();
+		expect(text).toBe('{"say":"do: a=nothing","method":"POST","postbody":"123456789"}');
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
+test('do?a=nothing via POST+EDGEDATA', async (done) => {
 	try {
 		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890"});
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		const text=await res.text();
-		expect(text).toBe('{"say":"do: a=nothing","method":"POST"}');
+		expect(text).toBe('{"say":"do: a=nothing","method":"POST","postbody":"1234567890"}');
 		done();
 	} catch (err) {
 		done (err);
@@ -111,6 +138,7 @@ test('do?a=addhj via GET', async (done) => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		expect(res.headers.get('X-AddH')).toBe('json');
+		expect(res.headers.get('Content-Type')).toBe('application/json; charset=UTF-8; custom=data');
 		const text=await res.text();
 		expect(text).toBe('{"say":"do: a=addhj","method":"GET"}');
 		done();

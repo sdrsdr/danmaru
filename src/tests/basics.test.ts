@@ -1,6 +1,6 @@
 
 import * as http  from 'http';
-import {compose,log_all,log_none,sane_options_GET_API,codes} from '../index';
+import {compose,log_all,log_none,sane_options_GET_API,codes, logger_t, http_action_gone} from '../index';
 import fetch from 'node-fetch';
 
 const test_port=Math.floor(41000+999*Math.random());
@@ -21,7 +21,8 @@ compose(
 			let who=req.full_url.searchParams.get('who')??"<who param not found in searchParams>";
 			log.mark("Hello "+who+" of JSON!");
 			resp.json_response(codes.OK,{say:'Hello '+who+' of JSON',method:req.method});
-		}}
+		}},
+		{prefix:"/rejected", do: http_action_gone, exact_match:true}
 	],{log, auto_handle_OPTIONS:true}
 );
 
@@ -42,7 +43,29 @@ afterAll((done)=>{
 		done(err);
 	});
 })
-	
+
+test('helper API checks', (done)=>{
+	try {
+		expect(()=>{
+			let log1:logger_t=log_all();
+			log1.debug('testing log_all debug %s','output');
+			log1.info('testing log_all info %s','output');
+			log1.warn('testing log_all warn %s','output');
+			log1.error('testing log_all error %s','output');
+			log1.mark('testing log_all mark %s','output');
+			let log2:logger_t=log_none();
+			log2.debug('testing log_none debug %s','output');
+			log2.info('testing log_none info %s','output');
+			log2.warn('testing log_none warn %s','output');
+			log2.error('testing log_none error %s','output');
+			log2.mark('testing log_none mark %s','output');
+		}).not.toThrow();
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
 test('hello world via GET', async (done) => {
 	try {
 		let res=await fetch(test_fetch_prefix+'hello?who=world');
@@ -64,6 +87,17 @@ test('unknown via GET', async (done) => {
 		done (err);
 	}
 });
+
+test('rejected via GET', async (done) => {
+	try {
+		let res=await fetch(test_fetch_prefix+'rejected');
+		expect(res.status).toBe(codes.GONE);
+		done();
+	} catch (err) {
+		done (err);
+	}
+});
+
 
 test('hello JSON world via GET', async (done) => {
 	try {
