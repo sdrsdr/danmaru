@@ -28,4 +28,8 @@ server.listen(1234,()=>{
 
 ```
 
-For more (advanced) examples take a look at our test files :)
+## compose
+
+```typescript
+export function compose(server:http_Server|https_Server, http_actions:http_action_t[], options?:options_t):boolean ;
+```
