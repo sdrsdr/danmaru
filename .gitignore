@@ -4,3 +4,4 @@
 /tsc
 /coverage
 *.tgz
+/.vscode
