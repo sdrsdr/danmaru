@@ -35,11 +35,10 @@ const MAX_BODY_SIZE=40000;
 export interface options_t {
 	log?:logger_t; 
 	indexer?:http_action_cb; //default handler; if not set a 404 is send back
-	auto_headers?:OutgoingHttpHeaders; //this heders are preset for sending for each responce 
-	auto_handle_OPTIONS?:boolean; //just do resp.simple_responce(200) and return for all non 404 urls and OPTIONS method (passing the content of auto_headers to the browser)
-	max_body_size?:number; //in charecters if not set MAX_BODY_SIZE will be enforced
-	allowed_methods?:string[]; // dafault is no-filtering;
-	
+	auto_headers?:OutgoingHttpHeaders; //this headers are preset for sending for each response 
+	auto_handle_OPTIONS?:boolean; //default is false. Just do resp.simple_response(200) and return for all non 404 urls and OPTIONS method (passing the content of auto_headers to the browser)
+	max_body_size?:number; //in characters if not set MAX_BODY_SIZE will be enforced
+	allowed_methods?:string[]; // default is no-filtering;
 }
 
 
@@ -58,7 +57,7 @@ export interface http_action_cb {
 }
 
 export interface CompleteIncomingMessage extends IncomingMessage {
-	//assert this from paren
+	//assert this from parent
 	url:string;
 	method:string;
 
@@ -168,7 +167,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	}
 
 	let indexer:http_action_t|undefined=undefined;
-	const auto_headsers=options?.auto_headers;
+	const auto_headers=options?.auto_headers;
 	if (options?.indexer!=undefined) {
 		indexer={prefix:'<<INDEXER>>>',do:options.indexer};
 	}
@@ -205,7 +204,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	})
 
 	server.on('request',(early_req:IncomingMessage,resp_:ServerResponse)=>{
-		let resp=mk_SimpleServerResponse(resp_,log,auto_headsers);
+		let resp=mk_SimpleServerResponse(resp_,log,auto_headers);
 		if (early_req.url==undefined || early_req.method==undefined) {
 			log.error("server.on 'request' but no .url or .method ?!");
 			return;
@@ -283,7 +282,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 				return;
 			}
 			if (auto_handle_OPTIONS && req.method=="OPTIONS") {
-				log.debug("OPTIONS to %s will be auto handeled! body len:%d",early_req.url,req.body_string.length);
+				log.debug("OPTIONS to %s will be auto handled! body len:%d",early_req.url,req.body_string.length);
 				resp.simple_response(codes.OK);
 				cleanup_CompleteIncomingMessage(req);
 				return;
@@ -360,7 +359,7 @@ function simple_response(this:SimpleServerResponse,code:number,data?:any, header
 			this.setHeader(h,<any>(headers[h]));
 		}
 	}
-	if (this.logger!=undefined) this.logger.debug("resp to %s sending responce with code %d",this.req_url,code);
+	if (this.logger!=undefined) this.logger.debug("resp to %s sending response with code %d",this.req_url,code);
 	this.writeHead(code,reason);
 	let res=true;
 	if (data!=undefined && data!=null) {
