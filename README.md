@@ -178,3 +178,26 @@ function log_all():logger_t {
 	}
 }
 ```
+
+
+ For static files serving we recoomend using [serve-handler](https://www.npmjs.com/package/serve-handler) and calling it in indexer function
+
+ ```typescript 
+ import {compose} from 'danmaru';
+ import serveHandler from 'serve-handler'
+
+ ....
+
+ compose(server,[...],{
+	 indexer:(req,resp)=>{
+		if (req.url.startsWith('/api/')) {
+			log.info("unhandled api call at "+req.url);
+			resp.simple_response(codes.NOT_FOUND);
+			return;
+		}
+		serveHandler(req,resp,{public:"./fe/dist", rewrites:[{source:'/',destination:'/index.html'}]});
+	}
+});
+ ```
+
+For more (advanced) examples take a look at our test files :)

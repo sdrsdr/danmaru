@@ -130,7 +130,7 @@ export const codes={
 	NOT_FOUND:404,
 	METHOD_NOT_ALLOWED:405,
 	GONE:410,
-
+	INTERNAL_ERR:500,
 }
 
 export function http_action_gone (req:CompleteIncomingMessage, resp:SimpleServerResponse) {
