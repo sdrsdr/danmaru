@@ -39,6 +39,7 @@ export interface options_t {
 	auto_handle_OPTIONS?:boolean; //default is false. Just do resp.simple_response(200) and return for all non 404 urls and OPTIONS method (passing the content of auto_headers to the browser)
 	max_body_size?:number; //in characters if not set MAX_BODY_SIZE will be enforced
 	allowed_methods?:string[]; // default is no-filtering;
+	catch_to_500?:boolean; //catch exceptions in http_action_t.do, log in err, respond with error code 500 (if possible)
 }
 
 
@@ -53,7 +54,7 @@ export interface http_action_t {
 
 
 export interface http_action_cb {
-	(req:CompleteIncomingMessage, resp:SimpleServerResponse) :void;
+	(req:CompleteIncomingMessage, resp:SimpleServerResponse) :void|Promise<any>;
 }
 
 export interface CompleteIncomingMessage extends IncomingMessage {
@@ -182,6 +183,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	} else {
 		method_filter=[]; //better safe than sorry
 	}
+	const catch_to_500=options?.catch_to_500??false;
 
 	let default_base:string=scheme+'unknown:0';
 	server.on("listening",()=>{
@@ -303,7 +305,30 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 			}
 
 			log.debug("%s to %s complete request is ready for handling! body len:%d",req.method,early_req.url,req.body_string.length);
-			selected_action.do(req,resp);
+			if (catch_to_500) {
+				try {
+					let prom=selected_action.do(req,resp);
+					if (prom) {
+						prom.catch((e)=>{
+							log.error("%s to %s promise from .do callback got rejected ",early_req.method,early_req.url,e);
+							if (!resp.headersSent) {
+								resp.simple_response(codes.INTERNAL_ERR);
+							} else {
+								if (!resp.finished) resp.end();
+							}
+						});
+					}
+				} catch(e){
+					log.error("%s to %s calling .do callback got err",early_req.method,early_req.url,e);
+					if (!resp.headersSent) {
+						resp.simple_response(codes.INTERNAL_ERR);
+					} else {
+						if (!resp.finished) resp.end();
+					}
+				}
+			} else {
+				selected_action.do(req,resp);
+			}
 			cleanup_CompleteIncomingMessage(req);
 		});
 	});

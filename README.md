@@ -70,6 +70,7 @@ interface options_t {
 	auto_handle_OPTIONS?:boolean; //default is false. Just do resp.simple_response(200) and return for all non 404 urls and OPTIONS method (passing the content of auto_headers to the browser)
 	max_body_size?:number; //in characters if not set MAX_BODY_SIZE will be enforced
 	allowed_methods?:string[]; // default is no-filtering;
+	catch_to_500?:boolean; //catch exceptions in http_action_t.do, log in err, respond with error code 500 (if possible)
 }
 ```
 
@@ -81,12 +82,12 @@ options for `compose`:
 * `auto_handle_OPTIONS` is of by default. If set to `true` it allows for unmatched requests with `OPTIONS` method to be automatically replied with `200 OK` plus the `auto_headers` to allow some browsers to check for [CORS](https://en.wikipedia.org/wiki/Cross-origin_resource_sharing) headers.
 * `max_body_size` global request body size limiter.  if not set MAX_BODY_SIZE will be enforced.
 * `allowed_methods` states what HTTP methods your server will handle. If you want to handle only `GET` and/or `POST` request you can state so here and keep `http_action` param of `compose` cleaner or you can intermix all HTTP method filtering to you like
-
+* `catch_to_500` makes error handling easy in `.do` callback by puting a `try {...} catch ( ... ) { ... }` block so an exception thrown in your code will cause internal server error code 500 to be send. To proper catch async errors you need to return the (hidden) promise from from the first async function called. See the example in http_action_cb below
 
 ## http_action_cb
 ```typescript
 interface http_action_cb {
-	(req:CompleteIncomingMessage, resp:SimpleServerResponse) :void;
+	(req:CompleteIncomingMessage, resp:SimpleServerResponse) :void|Promise<any>;
 }
 ```
 
@@ -97,10 +98,46 @@ function handle_a_request(req:CompleteIncomingMessage, resp:SimpleServerResponse
 	...
 }
 ```
+or
+```typescript
+async function handle_a_request(req:CompleteIncomingMessage, resp:SimpleServerResponse) {
+	...
+}
+```
+
 
 this is the `do` in `http_action_t`  and `indexer` in `options_t` 
 
-as usual us the information in `req` to craft a `resp`
+as usual use the information in `req` to craft a `resp`
+
+if you're using `catch_to_500` option and mixing sync and async functions make really sure you're returing the tail call functions. For example if you're using a authentication middleware you should do some strict returns:
+
+```typescript
+
+type chain_cb_t=(req: CompleteIncomingMessage, resp: SimpleServerResponse, auth_artefact:string)=>void|Promise<any>;
+
+//chack auth call chain if auth ok
+function auth (req: CompleteIncomingMessage, resp: SimpleServerResponse, chain:chain_cb_t){
+	let  auth_artefact=req......
+	....
+	return chain(req,resp,auth_artefact)
+}
+
+async function dothis(req: CompleteIncomingMessage, resp: SimpleServerResponse, auth_artefact:string) {
+	await ....
+}
+...
+compose(
+	server,
+	[
+	...
+	{prefix:"/api/dothis?", do: (req,resp)=>{return auth(req,resp,dothis)}},
+	{prefix:"/api/dothat?", do: (req,resp)=>{return auth(req,resp,dothat)}},
+	....
+	],
+	options
+);
+```
 
 ## CompleteIncomingMessage
 
