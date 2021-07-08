@@ -76,6 +76,7 @@ export interface SimpleServerResponse extends ServerResponse {
 	auto_headers:OutgoingHttpHeaders;
 	simple_response:(code:number,data?:any, headers?:OutgoingHttpHeaders, reason?:string)=>boolean;
 	json_response:(code:number,data:string|object, headers?:OutgoingHttpHeaders, reason?:string)=>boolean;
+	indicate_error_if_possible:(code:number)=>void;
 }
 
 export interface logger_t {
@@ -320,11 +321,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 					}
 				} catch(e){
 					log.error("%s to %s calling .do callback got err",early_req.method,early_req.url,e);
-					if (!resp.headersSent) {
-						resp.simple_response(codes.INTERNAL_ERR);
-					} else {
-						if (!resp.finished) resp.end();
-					}
+					resp.indicate_error_if_possible(codes.INTERNAL_ERR);
 				}
 			} else {
 				selected_action.do(req,resp);
@@ -346,6 +343,7 @@ function mk_SimpleServerResponse(resp_:ServerResponse, logger:logger_t,auto_head
 	resp.simple_response=simple_response;
 	resp.json_response=json_response;
 	resp.auto_headers=auto_headers??{};
+	resp.indicate_error_if_possible=indicate_error_if_possible;
 	return resp;
 }
 
@@ -397,6 +395,14 @@ function simple_response(this:SimpleServerResponse,code:number,data?:any, header
 	}
 	this.end();
 	return res;
+}
+
+function indicate_error_if_possible (this:SimpleServerResponse,code:number):void {
+	if (!this.headersSent) {
+		this.simple_response(codes.INTERNAL_ERR);
+	} else {
+		if (!this.writableEnded) this.end();
+	}
 }
 
 function json_response(this:SimpleServerResponse,code:number,data:string|object, headers?:OutgoingHttpHeaders, reason?:string):boolean {
