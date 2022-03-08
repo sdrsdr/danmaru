@@ -49,6 +49,7 @@ interface http_action_t {
 	m?:string[]; //allowed methods
 	max_body_size?:number; //if not set max_body_size from options or MAX_BODY_SIZE will be enforced
 	exact_match?:boolean; //default false; if true prefix must exact-match
+	error_catcher?:error_catcher_cb; //catch failing requests
 }
 ```
 
@@ -59,6 +60,7 @@ Array of this interface goes in `compose` to describe the urls handled by the se
 * `m` Is optional string array that explicityl allows only mentioned HTTP methods. If this is not set the method filter from `compose`'s `optins` kick in. It is possible to have multiple `http_action` with same `prefix` but different `m` filters and different do
 * `max_body_size` is optional limiter for http resuest body size once the request matches. You can set global limit in `compose`'s `options`. There is some hard coded limit if none is set explicityl.
 * `exact_match` is assumed false if missing. This changes how the incoming request url is matched against `http_action`. It is possible to have multiple `http_action` with same `prefix` but different `exact_match` and different do
+* `error_catcher` a callback that will receive all request about to be rejected by the library.
 
 ## options_t
 
@@ -71,6 +73,7 @@ interface options_t {
 	max_body_size?:number; //in characters if not set MAX_BODY_SIZE will be enforced
 	allowed_methods?:string[]; // default is no-filtering;
 	catch_to_500?:boolean; //catch exceptions in http_action_t.do, log in err, respond with error code 500 (if possible)
+	error_catcher?:error_catcher_cb; //catch failing requests
 }
 ```
 
@@ -83,6 +86,7 @@ options for `compose`:
 * `max_body_size` global request body size limiter.  if not set MAX_BODY_SIZE will be enforced.
 * `allowed_methods` states what HTTP methods your server will handle. If you want to handle only `GET` and/or `POST` request you can state so here and keep `http_action` param of `compose` cleaner or you can intermix all HTTP method filtering to you like
 * `catch_to_500` makes error handling easy in `.do` callback by puting a `try {...} catch ( ... ) { ... }` block so an exception thrown in your code will cause internal server error code 500 to be send. To proper catch async errors you need to return the (hidden) promise from from the first async function called. See the example in http_action_cb below
+* `error_catcher` a callback that will receive all request about to be rejected by the library.
 
 ## http_action_cb
 ```typescript

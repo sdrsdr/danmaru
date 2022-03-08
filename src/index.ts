@@ -15,6 +15,7 @@
 //   https://www.gnu.org/licenses
 
 
+import util from 'util';
 import { IncomingMessage,ServerResponse,Server as http_Server, OutgoingHttpHeaders } from 'http';
 import { Server as https_Server} from 'https';
 import { URL } from 'url';
@@ -40,6 +41,7 @@ export interface options_t {
 	max_body_size?:number; //in characters if not set MAX_BODY_SIZE will be enforced
 	allowed_methods?:string[]; // default is no-filtering;
 	catch_to_500?:boolean; //catch exceptions in http_action_t.do, log in err, respond with error code 500 (if possible)
+	error_catcher?:error_catcher_cb;
 }
 
 
@@ -49,9 +51,33 @@ export interface http_action_t {
 	do:http_action_cb;
 	m?:string[]; //allowed methods
 	max_body_size?:number; //if not set max_body_size from options or MAX_BODY_SIZE will be enforced
-	exact_match?:boolean; //default false; if true prefix must exact-match
+	exact_match?:boolean; //default false; if true prefix must exact-match,
+	error_catcher?:error_catcher_cb;
 }
 
+export const ERR_REASON_NOURL=1;
+export const ERR_REASON_BADMETHOD=2;
+export const ERR_REASON_NOTFOUND=3;
+export const ERR_REASON_NETERR=4;
+export const ERR_REASON_NETABORTED=5;
+export const ERR_REASON_OVERSIZED=6;
+export const ERR_REASON_BADURL=7;
+export const ERR_REASON_HANDLING_ERR=8;
+
+export type ERR_REASON=
+	typeof ERR_REASON_NOURL
+	| typeof ERR_REASON_BADMETHOD
+	| typeof ERR_REASON_NOTFOUND
+	| typeof ERR_REASON_NETERR
+	| typeof ERR_REASON_NETABORTED
+	| typeof ERR_REASON_OVERSIZED
+	| typeof ERR_REASON_BADURL
+	| typeof ERR_REASON_HANDLING_ERR
+;
+
+export interface error_catcher_cb {
+	(reason:ERR_REASON, req:CompleteIncomingMessage|IncomingMessage, resp:SimpleServerResponse, err_message:string) :void;
+}
 
 export interface http_action_cb {
 	(req:CompleteIncomingMessage, resp:SimpleServerResponse) :void|Promise<any>;
@@ -184,7 +210,9 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	} else {
 		method_filter=[]; //better safe than sorry
 	}
+	
 	const catch_to_500=options?.catch_to_500??false;
+	const global_err_chatcher=options?.error_catcher;
 
 	let default_base:string=scheme+'unknown:0';
 	server.on("listening",()=>{
@@ -209,13 +237,18 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	server.on('request',(early_req:IncomingMessage,resp_:ServerResponse)=>{
 		let resp=mk_SimpleServerResponse(resp_,log,auto_headers);
 		if (early_req.url==undefined || early_req.method==undefined) {
-			log.error("server.on 'request' but no .url or .method ?!");
+			const msg="server.on 'request' but no .url or .method ?!";
+			log.error(msg);
+			if (global_err_chatcher) global_err_chatcher(ERR_REASON_NOURL,early_req,resp,msg);
+			resp.destroy();
 			return;
 		}
 		resp.req_url=early_req.url;
 		if (do_method_filter && method_filter.indexOf(early_req.method)<0){
-			log.info("%s to %s is not allowed buy method_filter",early_req.method,early_req.url);
-			resp.simple_response(codes.METHOD_NOT_ALLOWED);
+			const msg=util.format("%s to %s is not allowed buy method_filter",early_req.method,early_req.url);
+			log.info(msg);
+			if (global_err_chatcher) global_err_chatcher(ERR_REASON_BADMETHOD,early_req,resp,msg);
+			resp.indicate_error_if_possible(codes.METHOD_NOT_ALLOWED);
 			return;
 		}
 	
@@ -233,9 +266,11 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 		}
 
 		if (selected_action_==undefined) {
-			if (indexer==undefined) {	
-				log.info("%s to %s not found in http_actions",early_req.method,early_req.url);
-				resp.simple_response(codes.NOT_FOUND);
+			if (indexer==undefined) {
+				const msg=util.format("%s to %s not found in http_actions",early_req.method,early_req.url);
+				log.info(msg);
+				if (global_err_chatcher) global_err_chatcher(ERR_REASON_NOTFOUND,early_req,resp,msg);
+				resp.indicate_error_if_possible(codes.NOT_FOUND);
 				return;
 			} else {
 				log.info("%s to %s not found in http_actions indexing..",early_req.method,early_req.url);
@@ -243,7 +278,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 			}
 		}
 		
-		const selected_action:http_action_t=selected_action_; //really sore locally for the closures
+		const selected_action:http_action_t=selected_action_; //really store locally for the closures
 		resp.action=selected_action;
 		let max_body_size:number=selected_action.max_body_size??global_max_body_size;
 
@@ -251,8 +286,11 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 		let req=mk_CompleteIncomingMessage(early_req,selected_action);
 
 		req.on("aborted",()=>{
+			const msg=util.format("%s to %s request aborted!",early_req.method,early_req.url);
+			log.debug(msg);
+			if (global_err_chatcher) global_err_chatcher(ERR_REASON_NETABORTED,req,resp,msg);
+			if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_NETABORTED,req,resp,msg);
 			cleanup_CompleteIncomingMessage(req);
-			log.debug("%s to %s request aborted!",early_req.method,early_req.url);
 		});
 
 		req.on("close",()=>{
@@ -261,7 +299,10 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 		});
 
 		req.on("error",(e)=>{
-			log.error("%s to %s request got err(%s) %o",early_req.method,early_req.url,e.message ,e);
+			const msg=util.format("%s to %s request got err(%s) %o",early_req.method,early_req.url,e.message ,e);
+			log.error(msg);
+			if (global_err_chatcher) global_err_chatcher(ERR_REASON_NETERR,req,resp,msg);
+			if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_NETERR,req,resp,msg);
 			cleanup_CompleteIncomingMessage(req);
 		});
 
@@ -273,8 +314,12 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 			}
 			if (req.body_string.length>max_body_size) {
 				req.is_damaged=true;
-				log.error("%s to %s request reached maximal allowed body size of ",early_req.method,early_req.url,max_body_size);
-				resp.simple_response(codes.BAD_REQ);
+				const msg=util.format("%s to %s request reached maximal allowed body size of ",early_req.method,early_req.url,max_body_size);
+				log.error(msg);
+				if (global_err_chatcher) global_err_chatcher(ERR_REASON_OVERSIZED,req,resp,msg);
+				if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_OVERSIZED,req,resp,msg);
+				
+				resp.indicate_error_if_possible(codes.BAD_REQ);
 				cleanup_CompleteIncomingMessage(req);
 				req.destroy(new Error("request body size reached "+req.body_string+" but maximum allowed is "+max_body_size));
 			}
@@ -292,15 +337,19 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 			}
 			try {
 				let hn=req.headers.host;
-				if (hn==undefined) {
+				if (hn==undefined || hn.trim()=='') {
 					req.full_url=new URL(default_base+req.url);
 				} else {
 					req.full_url=new URL(scheme+hn+req.url);
 				}
 			} catch (e) {
 				req.is_damaged=true;
-				log.error("%s to %s parsing full_url got err",early_req.method,early_req.url,e);
-				resp.simple_response(codes.BAD_REQ);
+				const msg=util.format("%s to %s parsing full_url got err",early_req.method,early_req.url,e);
+				log.error(msg);
+				if (global_err_chatcher) global_err_chatcher(ERR_REASON_BADURL,req,resp,msg);
+				if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_BADURL,req,resp,msg);
+
+				resp.indicate_error_if_possible(codes.BAD_REQ);
 				cleanup_CompleteIncomingMessage(req);
 				return;
 			}
@@ -320,7 +369,12 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 						});
 					}
 				} catch(e){
-					log.error("%s to %s calling .do callback got err",early_req.method,early_req.url,e);
+					const msg=util.format("%s to %s calling .do callback got err",early_req.method,early_req.url,e);
+					log.error(msg);
+
+					if (global_err_chatcher) global_err_chatcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
+					if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
+	
 					resp.indicate_error_if_possible(codes.INTERNAL_ERR);
 				}
 			} else {

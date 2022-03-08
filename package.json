@@ -1,6 +1,6 @@
 {
   "name": "danmaru",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "No dependency, convenience  HTTTP/HTTPS server wrapper",
   "main": "index.js",
   "types": "index.d.ts",
