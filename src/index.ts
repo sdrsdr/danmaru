@@ -63,6 +63,7 @@ export const ERR_REASON_NETABORTED=5;
 export const ERR_REASON_OVERSIZED=6;
 export const ERR_REASON_BADURL=7;
 export const ERR_REASON_HANDLING_ERR=8;
+export const ERR_REASON_HTTP2_NOTSUPPORTED=9;
 
 export type ERR_REASON=
 	typeof ERR_REASON_NOURL
@@ -73,6 +74,7 @@ export type ERR_REASON=
 	| typeof ERR_REASON_OVERSIZED
 	| typeof ERR_REASON_BADURL
 	| typeof ERR_REASON_HANDLING_ERR
+	| typeof ERR_REASON_HTTP2_NOTSUPPORTED
 ;
 
 export interface error_catcher_cb {
@@ -183,12 +185,12 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 
 	let scheme:string;
 
-	if (server instanceof http_Server) {
-		scheme='http://';
-		log.debug("composing on a HTTP server");
-	} else if (server instanceof https_Server) {
+	if (server instanceof https_Server) {
 		scheme='https://';
 		log.debug("composing on a HTTPS server");
+	} else if (server instanceof http_Server) {
+		scheme='http://';
+		log.debug("composing on a HTTP server");
 	} else {
 		log.error("not a HTTP or HTTPS server?!");
 		return false;
@@ -212,7 +214,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	}
 	
 	const catch_to_500=options?.catch_to_500??false;
-	const global_err_chatcher=options?.error_catcher;
+	const global_err_catcher=options?.error_catcher;
 
 	let default_base:string=scheme+'unknown:0';
 	server.on("listening",()=>{
@@ -239,7 +241,14 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 		if (early_req.url==undefined || early_req.method==undefined) {
 			const msg="server.on 'request' but no .url or .method ?!";
 			log.error(msg);
-			if (global_err_chatcher) global_err_chatcher(ERR_REASON_NOURL,early_req,resp,msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_NOURL,early_req,resp,msg);
+			resp.destroy();
+			return;
+		}
+		if (early_req.httpVersionMajor>1) {
+			const msg="server.on 'request' got  httpVersionMajor>1";
+			log.error(msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_NOURL,early_req,resp,msg);
 			resp.destroy();
 			return;
 		}
@@ -247,7 +256,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 		if (do_method_filter && method_filter.indexOf(early_req.method)<0){
 			const msg=util.format("%s to %s is not allowed buy method_filter",early_req.method,early_req.url);
 			log.info(msg);
-			if (global_err_chatcher) global_err_chatcher(ERR_REASON_BADMETHOD,early_req,resp,msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_BADMETHOD,early_req,resp,msg);
 			resp.indicate_error_if_possible(codes.METHOD_NOT_ALLOWED);
 			return;
 		}
@@ -269,7 +278,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 			if (indexer==undefined) {
 				const msg=util.format("%s to %s not found in http_actions",early_req.method,early_req.url);
 				log.info(msg);
-				if (global_err_chatcher) global_err_chatcher(ERR_REASON_NOTFOUND,early_req,resp,msg);
+				if (global_err_catcher) global_err_catcher(ERR_REASON_NOTFOUND,early_req,resp,msg);
 				resp.indicate_error_if_possible(codes.NOT_FOUND);
 				return;
 			} else {
@@ -288,7 +297,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 		req.on("aborted",()=>{
 			const msg=util.format("%s to %s request aborted!",early_req.method,early_req.url);
 			log.debug(msg);
-			if (global_err_chatcher) global_err_chatcher(ERR_REASON_NETABORTED,req,resp,msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_NETABORTED,req,resp,msg);
 			if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_NETABORTED,req,resp,msg);
 			cleanup_CompleteIncomingMessage(req);
 		});
@@ -301,7 +310,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 		req.on("error",(e)=>{
 			const msg=util.format("%s to %s request got err(%s) %o",early_req.method,early_req.url,e.message ,e);
 			log.error(msg);
-			if (global_err_chatcher) global_err_chatcher(ERR_REASON_NETERR,req,resp,msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_NETERR,req,resp,msg);
 			if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_NETERR,req,resp,msg);
 			cleanup_CompleteIncomingMessage(req);
 		});
@@ -316,7 +325,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 				req.is_damaged=true;
 				const msg=util.format("%s to %s request reached maximal allowed body size of ",early_req.method,early_req.url,max_body_size);
 				log.error(msg);
-				if (global_err_chatcher) global_err_chatcher(ERR_REASON_OVERSIZED,req,resp,msg);
+				if (global_err_catcher) global_err_catcher(ERR_REASON_OVERSIZED,req,resp,msg);
 				if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_OVERSIZED,req,resp,msg);
 				
 				resp.indicate_error_if_possible(codes.BAD_REQ);
@@ -335,8 +344,11 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 				cleanup_CompleteIncomingMessage(req);
 				return;
 			}
+
+			let hn=req.headers.host;
 			try {
-				let hn=req.headers.host;
+				let url=req.url;
+				if (!url.startsWith('/')) url='/'+url;
 				if (hn==undefined || hn.trim()=='') {
 					req.full_url=new URL(default_base+req.url);
 				} else {
@@ -344,9 +356,9 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 				}
 			} catch (e) {
 				req.is_damaged=true;
-				const msg=util.format("%s to %s parsing full_url got err",early_req.method,early_req.url,e);
+				const msg=util.format("method:[%s] uri[%s] host:[%s] parsing full_url got err",early_req.method,early_req.url,hn,e);
 				log.error(msg);
-				if (global_err_chatcher) global_err_chatcher(ERR_REASON_BADURL,req,resp,msg);
+				if (global_err_catcher) global_err_catcher(ERR_REASON_BADURL,req,resp,msg);
 				if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_BADURL,req,resp,msg);
 
 				resp.indicate_error_if_possible(codes.BAD_REQ);
@@ -372,7 +384,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 					const msg=util.format("%s to %s calling .do callback got err",early_req.method,early_req.url,e);
 					log.error(msg);
 
-					if (global_err_chatcher) global_err_chatcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
+					if (global_err_catcher) global_err_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
 					if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
 	
 					resp.indicate_error_if_possible(codes.INTERNAL_ERR);
@@ -453,7 +465,7 @@ function simple_response(this:SimpleServerResponse,code:number,data?:any, header
 
 function indicate_error_if_possible (this:SimpleServerResponse,code:number):void {
 	if (!this.headersSent) {
-		this.simple_response(codes.INTERNAL_ERR);
+		this.simple_response(code);
 	} else {
 		if (!this.writableEnded) this.end();
 	}
