@@ -174,7 +174,7 @@ export const sane_options:options_t={
 export const sane_options_gone_index:options_t={...sane_options,indexer:http_action_gone};
 export const sane_options_GET_API:options_t={...sane_options,allowed_methods:["GET","OPTIONS"]};
 
-
+const hostname_re=/^[0-9a-zA-Z\-._]+(:\d+)?$/;
 
 /**************************
 *  MAIN CALL
@@ -346,6 +346,10 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 			}
 
 			let hn=req.headers.host;
+			if (typeof(hn)=='string' && hn.match(hostname_re)===null) {
+				hn=undefined;
+			}
+			
 			try {
 				let url=req.url;
 				if (!url.startsWith('/')) url='/'+url;
