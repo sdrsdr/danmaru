@@ -73,7 +73,10 @@ interface options_t {
 	max_body_size?:number; //in characters if not set MAX_BODY_SIZE will be enforced
 	allowed_methods?:string[]; // default is no-filtering;
 	catch_to_500?:boolean; //catch exceptions in http_action_t.do, log in err, respond with error code 500 (if possible)
-	error_catcher?:error_catcher_cb; //catch failing requests
+	error_catcher?:error_catcher_cb; //catch failing requests,
+	
+	//usually send errors are loged in error level, with this option the log is lowered to debug level. Typical uisage  send_error_ignore:['ERR_STREAM_DESTROYED']
+	send_error_ignore?:string[]; 
 }
 ```
 

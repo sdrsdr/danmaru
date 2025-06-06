@@ -1,7 +1,7 @@
 
 import * as http  from 'http';
 import {compose,log_all,log_none,sane_options_GET_API,codes} from '../index';
-import fetch from 'node-fetch';
+
 
 const test_port=Math.floor(43000+999*Math.random());
 const test_fetch_prefix="http://127.0.0.1:"+test_port+'/';
@@ -50,90 +50,74 @@ beforeAll((done)=>{
 });
 
 afterAll((done)=>{
-	log.mark("test server ends");
-	server.close((err)=>{
-		done(err);
-	});
+	setTimeout(()=>{
+		log.mark("test server ends");
+		server.close((err)=>{
+			done(err);
+		});
+	},1500)
 })
 	
-test('do?a=nothing via GET', async (done) => {
-	try {
+test('do?a=nothing via GET', async () => {
+	expect(async ()=>{
 		let res=await fetch(test_fetch_prefix+'do?a=nothing');
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		const text=await res.text();
 		expect(text).toBe('{"say":"do: a=nothing","method":"GET"}');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
 
-test('do?a=nothing via POST+LARGE DATA', async (done) => {
-	try {
+test('do?a=nothing via POST+LARGE DATA', async () => {
+	expect(async ()=>{
 		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890A"});
 		expect(res.status).toBe(400);
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('do?a=nothing via POST+SMALL DATA', async (done) => {
-	try {
+test('do?a=nothing via POST+SMALL DATA', async () => {
+	expect(async ()=>{
 		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"123456789"});
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		const text=await res.text();
 		expect(text).toBe('{"say":"do: a=nothing","method":"POST","postbody":"123456789"}');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('do?a=nothing via POST+EDGEDATA', async (done) => {
-	try {
+test('do?a=nothing via POST+EDGEDATA', async () => {
+	expect(async ()=>{
 		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890"});
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		const text=await res.text();
 		expect(text).toBe('{"say":"do: a=nothing","method":"POST","postbody":"1234567890"}');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('do via GET', async (done) => {
-	try {
-		let res=await fetch(test_fetch_prefix+'do?');
+test('do via GET', async () => {
+	expect(async ()=>{
+		let res=await fetch(test_fetch_prefix+'do?garbage');
 		expect(res.status).toBe(codes.BAD_REQ);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		expect(res.statusText).toBe('MISSING PARAM');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('do?a=addhs via GET', async (done) => {
-	try {
+test('do?a=addhs via GET', async () => {
+	expect(async ()=>{
 		let res=await fetch(test_fetch_prefix+'do?a=addhs');
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
 		expect(res.headers.get('X-AddH')).toBe('simple');
 		const text=await res.text();
 		expect(text).toBe('do: a=addhs method=GET');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('do?a=addhj via GET', async (done) => {
-	try {
+test('do?a=addhj via GET', async () => {
+	expect(async ()=>{
 		let res=await fetch(test_fetch_prefix+'do?a=addhj');
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
@@ -141,10 +125,7 @@ test('do?a=addhj via GET', async (done) => {
 		expect(res.headers.get('Content-Type')).toBe('application/json; charset=UTF-8; custom=data');
 		const text=await res.text();
 		expect(text).toBe('{"say":"do: a=addhj","method":"GET"}');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
 

@@ -1,7 +1,7 @@
 
 import * as http  from 'http';
 import {compose,log_all,log_none,sane_options_GET_API,codes} from '../index';
-import fetch from 'node-fetch';
+
 
 const test_port=Math.floor(42000+999*Math.random());
 const test_fetch_prefix="http://127.0.0.1:"+test_port+'/';
@@ -36,102 +36,80 @@ beforeAll((done)=>{
 });
 
 afterAll((done)=>{
-	log.mark("test server ends");
-	server.close((err)=>{
-		done(err);
-	});
+	setTimeout(()=>{
+		log.mark("test server ends");
+		server.close((err)=>{
+			done(err);
+		});
+	},1500)
 })
 	
-test('exact via GET', async (done) => {
-	try {
+test('exact via GET', async () => {
+	expect(async ()=>{
 		let res=await fetch(test_fetch_prefix+'exact');
 		expect(res.status).toBe(200);
 		const text=await res.text();
 		expect(text).toBe('exact match at /exact method: GET');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow()
 });
 
-test('exact via POST', async (done) => {
-	try {
+test('exact via POST', async () => {
+	expect(async()=> {
 		let res=await fetch(test_fetch_prefix+'exact',{method:"POST"});
 		expect(res.status).toBe(200);
 		const text=await res.text();
 		expect(text).toBe('exact match at /exact method: POST');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('exact via OPTIONS', async (done) => {
-	try {
+test('exact via OPTIONS', async () => {
+	expect(async()=> {
 		let res=await fetch(test_fetch_prefix+'exact',{method:"OPTIONS"});
 		expect(res.status).toBe(codes.METHOD_NOT_ALLOWED);
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
 
 
-test('exactget via GET', async (done) => {
-	try {
+test('exactget via GET', async () => {
+	expect(async()=> {
 		let res=await fetch(test_fetch_prefix+'exactget');
 		expect(res.status).toBe(200);
 		const text=await res.text();
 		expect(text).toBe('exact match at /exactget method: GET');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('exactget via POST', async (done) => {
-	try {
+test('exactget via POST', async () => {
+	expect(async()=> {
 		let res=await fetch(test_fetch_prefix+'exactget',{method:"POST"});
 		expect(res.status).toBe(200);
 		const text=await res.text();
 		expect(text).toBe('url:/exactget idexed! method: POST');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
 
 
-test('exactget via OPTIONS', async (done) => {
-	try {
+test('exactget via OPTIONS', async () => {
+	expect(async()=> {
 		let res=await fetch(test_fetch_prefix+'exactget',{method:"OPTIONS"});
 		expect(res.status).toBe(codes.METHOD_NOT_ALLOWED);
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('unknown via GET', async (done) => {
-	try {
+test('unknown via GET', async () => {
+	expect(async()=> {
 		let res=await fetch(test_fetch_prefix+'unknown');
 		expect(res.status).toBe(200);
 		const text=await res.text();
 		expect(text).toBe('url:/unknown idexed! method: GET');
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });
 
-test('unknown via OPTIONS', async (done) => {
-	try {
+test('unknown via OPTIONS', async () => {
+	expect(async()=> {
 		let res=await fetch(test_fetch_prefix+'unknown',{method:"OPTIONS"});
 		expect(res.status).toBe(codes.METHOD_NOT_ALLOWED);
-		done();
-	} catch (err) {
-		done (err);
-	}
+	}).not.toThrow();
 });

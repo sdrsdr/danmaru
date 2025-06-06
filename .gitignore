@@ -5,3 +5,5 @@
 /coverage
 *.tgz
 /.vscode
+/package-lock.json
+/tsc

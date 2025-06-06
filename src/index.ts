@@ -42,6 +42,9 @@ export interface options_t {
 	allowed_methods?:string[]; // default is no-filtering;
 	catch_to_500?:boolean; //catch exceptions in http_action_t.do, log in err, respond with error code 500 (if possible)
 	error_catcher?:error_catcher_cb;
+
+	//usually send errors are loged in error level, with this option the log is lowered to debug level. Typical uisage  send_error_ignore:['ERR_STREAM_DESTROYED']
+	send_error_ignore?:string[];
 }
 
 
@@ -64,6 +67,7 @@ export const ERR_REASON_OVERSIZED=6;
 export const ERR_REASON_BADURL=7;
 export const ERR_REASON_HANDLING_ERR=8;
 export const ERR_REASON_HTTP2_NOTSUPPORTED=9;
+export const ERR_REASON_SEND_ERROR=10;
 
 export type ERR_REASON=
 	typeof ERR_REASON_NOURL
@@ -75,10 +79,11 @@ export type ERR_REASON=
 	| typeof ERR_REASON_BADURL
 	| typeof ERR_REASON_HANDLING_ERR
 	| typeof ERR_REASON_HTTP2_NOTSUPPORTED
+	| typeof ERR_REASON_SEND_ERROR
 ;
 
 export interface error_catcher_cb {
-	(reason:ERR_REASON, req:CompleteIncomingMessage|IncomingMessage, resp:SimpleServerResponse, err_message:string) :void;
+	(this:unknown,reason:ERR_REASON, req:CompleteIncomingMessage|IncomingMessage, resp:SimpleServerResponse, err_message:string) :void;
 }
 
 export interface http_action_cb {
@@ -105,6 +110,9 @@ export interface SimpleServerResponse extends ServerResponse {
 	simple_response:(code:number,data?:any, headers?:OutgoingHttpHeaders, reason?:string)=>boolean;
 	json_response:(code:number,data:string|object, headers?:OutgoingHttpHeaders, reason?:string)=>boolean;
 	indicate_error_if_possible:(code:number)=>void;
+	req:IncomingMessage|CompleteIncomingMessage;
+	send_error_ignore?:string[];
+	error_catcher?:error_catcher_cb;
 }
 
 export interface logger_t {
@@ -215,6 +223,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	
 	const catch_to_500=options?.catch_to_500??false;
 	const global_err_catcher=options?.error_catcher;
+	const send_error_ignore=options?.send_error_ignore;
 
 	let default_base:string=scheme+'unknown:0';
 	server.on("listening",()=>{
@@ -237,7 +246,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	})
 
 	server.on('request',(early_req:IncomingMessage,resp_:ServerResponse)=>{
-		let resp=mk_SimpleServerResponse(resp_,log,auto_headers);
+		let resp=mk_SimpleServerResponse(resp_,early_req,log,auto_headers,send_error_ignore,global_err_catcher);
 		if (early_req.url==undefined || early_req.method==undefined) {
 			const msg="server.on 'request' but no .url or .method ?!";
 			log.error(msg);
@@ -407,13 +416,16 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 *  INTERNALS
 ***************************/
 
-function mk_SimpleServerResponse(resp_:ServerResponse, logger:logger_t,auto_headers?:OutgoingHttpHeaders):SimpleServerResponse {
+function mk_SimpleServerResponse(resp_:ServerResponse, req:IncomingMessage, logger:logger_t,auto_headers:OutgoingHttpHeaders|undefined, error_ignore:string[]|undefined, error_catcher:error_catcher_cb|undefined):SimpleServerResponse {
 	let resp:SimpleServerResponse=<SimpleServerResponse>resp_;
 	resp.logger=logger;
 	resp.simple_response=simple_response;
 	resp.json_response=json_response;
 	resp.auto_headers=auto_headers??{};
 	resp.indicate_error_if_possible=indicate_error_if_possible;
+	resp.send_error_ignore=error_ignore;
+	resp.error_catcher=error_catcher;
+	resp.req=req;
 	return resp;
 }
 
@@ -458,7 +470,17 @@ function simple_response(this:SimpleServerResponse,code:number,data?:any, header
 	if (data!=undefined && data!=null) {
 		res=this.write(data,(e)=>{
 			if (e) {
-				if (this.logger!=undefined) this.logger.error("resp to %s sending resp got err(%s) %o",this.req_url,e.message,e);
+				if (this.send_error_ignore && this.send_error_ignore.indexOf((e as any).code)>=0){
+					if (this.logger!=undefined) this.logger.debug("resp to %s sending resp got IGNORED err(%s)",this.req_url,e.message);
+				} else {
+					if (this.error_catcher) {
+						if (this.logger!=undefined) this.logger.debug("resp to %s sending resp got TOBE CATCHED err(%s)",this.req_url,e.message);
+						this.error_catcher(ERR_REASON_SEND_ERROR,this.req,this,e.message);
+					} else {
+						if (this.logger!=undefined) this.logger.error("resp to %s sending resp got err(%s) %o",this.req_url,e.message,e);
+					}
+					
+				}
 				return;
 			}
 		})
