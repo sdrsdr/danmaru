@@ -5,7 +5,7 @@
   "main": "index.js",
   "types": "index.d.ts",
   "repository": {
-    "url": "https://github.com/sdrsdr/danmaru.git",
+    "url": "git+https://github.com/sdrsdr/danmaru.git",
     "type": "git"
   },
   "scripts": {
