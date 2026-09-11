@@ -49,6 +49,7 @@ interface http_action_t {
 	m?:string[]; //allowed methods
 	max_body_size?:number; //if not set max_body_size from options or MAX_BODY_SIZE will be enforced
 	exact_match?:boolean; //default false; if true prefix must exact-match
+	path_match?:boolean; //default false; if true prefix must match the url path: query string ignored, one trailing slash optional
 	error_catcher?:error_catcher_cb; //catch failing requests
 }
 ```
@@ -59,7 +60,8 @@ Array of this interface goes in `compose` to describe the urls handled by the se
 * `do` is the callback that will genrate the responce
 * `m` Is optional string array that explicityl allows only mentioned HTTP methods. If this is not set the method filter from `compose`'s `optins` kick in. It is possible to have multiple `http_action` with same `prefix` but different `m` filters and different do
 * `max_body_size` is optional limiter for http resuest body size once the request matches. You can set global limit in `compose`'s `options`. There is some hard coded limit if none is set explicityl.
-* `exact_match` is assumed false if missing. This changes how the incoming request url is matched against `http_action`. It is possible to have multiple `http_action` with same `prefix` but different `exact_match` and different do
+* `exact_match` is assumed false if missing. This changes how the incoming request url is matched against `http_action`. It is possible to have multiple `http_action` with same `prefix` but different `exact_match` and different do. Note that it compares the **whole raw url**, so an `exact_match` of `/api` does not match `/api/` or `/api?x=1` -- use `path_match` if you want those.
+* `path_match` is assumed false if missing, and is ignored when `exact_match` is true. It matches `prefix` against the url **path**: the query string is ignored and a single trailing slash is optional on either side. So a `prefix` of `/api` matches `/api`, `/api/`, `/api?x=1` and `/api/?x=1`, but not `/api_other` or `/api/sub`. This is the match most REST-ish endpoints want: pinned to one path, but tolerant of the trailing slash and query string a client may add.
 * `error_catcher` a callback that will receive all request about to be rejected by the library.
 
 ## options_t
@@ -245,3 +247,15 @@ function log_all():logger_t {
  ```
 
 For more (advanced) examples take a look at our test files :)
+
+## Development
+
+```sh
+npm run build   # emit index.js / index.d.ts
+npm test        # compile to .test-build and run the node:test suites
+```
+
+Tests use the node built-in test runner (`node --test`) and `node:assert`, so there is no
+test framework to install -- `npm test` compiles `src/` with the local TypeScript and runs
+the emitted CommonJS, which is the same module format the package ships. Requires Node 18
+or newer for `node --test`.

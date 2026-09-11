@@ -55,6 +55,7 @@ export interface http_action_t {
 	m?:string[]; //allowed methods
 	max_body_size?:number; //if not set max_body_size from options or MAX_BODY_SIZE will be enforced
 	exact_match?:boolean; //default false; if true prefix must exact-match,
+	path_match?:boolean; //default false; if true prefix must match the url path: query string ignored, one trailing slash optional. Ignored when exact_match is true
 	error_catcher?:error_catcher_cb;
 }
 
@@ -182,6 +183,27 @@ export const sane_options:options_t={
 export const sane_options_gone_index:options_t={...sane_options,indexer:http_action_gone};
 export const sane_options_GET_API:options_t={...sane_options,allowed_methods:["GET","OPTIONS"]};
 
+function strip_trailing_slash(s:string):string{
+	if (s.length>1 && s.endsWith('/')) return s.substring(0,s.length-1);
+	return s;
+}
+
+/**
+ * Match url against prefix as a *path* rather than as a raw string: the query
+ * string is ignored and a single trailing slash is optional on either side. So
+ * a prefix of '/api' matches '/api', '/api/', '/api?x=1' and '/api/?x=1', but
+ * not '/api_other' or '/api/sub'.
+ *
+ * This is what exact_match can not do: it compares the whole raw url, so it
+ * stops matching the moment a caller appends '?x=1' or a trailing slash.
+ */
+function path_matches(url:string,prefix:string):boolean{
+	let path=url;
+	const q=path.indexOf('?');
+	if (q>=0) path=path.substring(0,q);
+	return strip_trailing_slash(path)==strip_trailing_slash(prefix);
+}
+
 const hostname_re=/^[0-9a-zA-Z\-._]+(:\d+)?$/;
 
 /**************************
@@ -272,12 +294,17 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	
 		let selected_action_:http_action_t|undefined=undefined;
 		for (let a of http_actions) {
+			if (a.m!=undefined && a.m.indexOf(early_req.method)<0) continue;
 			if (a.exact_match===true) {
-				if ((early_req.url== a.prefix) && (a.m==undefined || a.m.indexOf(early_req.method)>=0 ) ) {
+				if (early_req.url== a.prefix) {
+					selected_action_=a; break;
+				}
+			} else if (a.path_match===true) {
+				if (path_matches(early_req.url,a.prefix)) {
 					selected_action_=a; break;
 				}
 			} else {
-				if (early_req.url.startsWith(a.prefix) && (a.m==undefined || a.m.indexOf(early_req.method)>=0) ) {
+				if (early_req.url.startsWith(a.prefix)) {
 					selected_action_=a; break;
 				}
 			}

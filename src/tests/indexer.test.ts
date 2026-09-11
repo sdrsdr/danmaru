@@ -1,7 +1,8 @@
-
-import * as http  from 'http';
-import {compose,log_all,log_none,sane_options_GET_API,codes} from '../index';
-
+import test, {before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import * as http from 'http';
+import {compose,log_none,codes} from '../index';
+import {start,stop} from './_server';
 
 const test_port=Math.floor(42000+999*Math.random());
 const test_fetch_prefix="http://127.0.0.1:"+test_port+'/';
@@ -24,92 +25,53 @@ compose(
 	}}
 );
 
-beforeAll((done)=>{
-	try {
-		server.listen(test_port,()=>{
-			log.mark("test server started at port %d",test_port);
-			done();
-		});
-	} catch (err){
-		done(err);
-	}
-});
+before(()=>start(server,test_port));
+after(()=>stop(server));
 
-afterAll((done)=>{
-	setTimeout(()=>{
-		log.mark("test server ends");
-		server.close((err)=>{
-			done(err);
-		});
-	},1500)
-})
-	
 test('exact via GET', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'exact');
-		expect(res.status).toBe(200);
-		const text=await res.text();
-		expect(text).toBe('exact match at /exact method: GET');
-	}).not.toThrow()
+	let res=await fetch(test_fetch_prefix+'exact');
+	assert.equal(res.status,200);
+	assert.equal(await res.text(),'exact match at /exact method: GET');
 });
 
 test('exact via POST', async () => {
-	expect(async()=> {
-		let res=await fetch(test_fetch_prefix+'exact',{method:"POST"});
-		expect(res.status).toBe(200);
-		const text=await res.text();
-		expect(text).toBe('exact match at /exact method: POST');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'exact',{method:"POST"});
+	assert.equal(res.status,200);
+	assert.equal(await res.text(),'exact match at /exact method: POST');
 });
 
 test('exact via OPTIONS', async () => {
-	expect(async()=> {
-		let res=await fetch(test_fetch_prefix+'exact',{method:"OPTIONS"});
-		expect(res.status).toBe(codes.METHOD_NOT_ALLOWED);
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'exact',{method:"OPTIONS"});
+	assert.equal(res.status,codes.METHOD_NOT_ALLOWED);
+	await res.text();
 });
 
-
-
 test('exactget via GET', async () => {
-	expect(async()=> {
-		let res=await fetch(test_fetch_prefix+'exactget');
-		expect(res.status).toBe(200);
-		const text=await res.text();
-		expect(text).toBe('exact match at /exactget method: GET');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'exactget');
+	assert.equal(res.status,200);
+	assert.equal(await res.text(),'exact match at /exactget method: GET');
 });
 
 test('exactget via POST', async () => {
-	expect(async()=> {
-		let res=await fetch(test_fetch_prefix+'exactget',{method:"POST"});
-		expect(res.status).toBe(200);
-		const text=await res.text();
-		expect(text).toBe('url:/exactget idexed! method: POST');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'exactget',{method:"POST"});
+	assert.equal(res.status,200);
+	assert.equal(await res.text(),'url:/exactget idexed! method: POST');
 });
 
-
-
 test('exactget via OPTIONS', async () => {
-	expect(async()=> {
-		let res=await fetch(test_fetch_prefix+'exactget',{method:"OPTIONS"});
-		expect(res.status).toBe(codes.METHOD_NOT_ALLOWED);
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'exactget',{method:"OPTIONS"});
+	assert.equal(res.status,codes.METHOD_NOT_ALLOWED);
+	await res.text();
 });
 
 test('unknown via GET', async () => {
-	expect(async()=> {
-		let res=await fetch(test_fetch_prefix+'unknown');
-		expect(res.status).toBe(200);
-		const text=await res.text();
-		expect(text).toBe('url:/unknown idexed! method: GET');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'unknown');
+	assert.equal(res.status,200);
+	assert.equal(await res.text(),'url:/unknown idexed! method: GET');
 });
 
 test('unknown via OPTIONS', async () => {
-	expect(async()=> {
-		let res=await fetch(test_fetch_prefix+'unknown',{method:"OPTIONS"});
-		expect(res.status).toBe(codes.METHOD_NOT_ALLOWED);
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'unknown',{method:"OPTIONS"});
+	assert.equal(res.status,codes.METHOD_NOT_ALLOWED);
+	await res.text();
 });

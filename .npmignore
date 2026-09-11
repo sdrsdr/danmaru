@@ -1,6 +1,7 @@
 src
 coverage
-jest.config.js
 tsconfig.json
 *.tgz
 .vscode
+test-build
+tsconfig.test.json

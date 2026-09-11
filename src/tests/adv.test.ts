@@ -1,7 +1,8 @@
-
-import * as http  from 'http';
-import {compose,log_all,log_none,sane_options_GET_API,codes} from '../index';
-
+import test, {before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import * as http from 'http';
+import {compose,log_none,codes} from '../index';
+import {start,stop} from './_server';
 
 const test_port=Math.floor(43000+999*Math.random());
 const test_fetch_prefix="http://127.0.0.1:"+test_port+'/';
@@ -38,156 +39,57 @@ compose(
 		],{log, auto_handle_OPTIONS:true, auto_headers:{"Access-Control-Allow-Origin":"*"}, max_body_size:10}
 );
 
-beforeAll((done)=>{
-	try {
-		server.listen(test_port,()=>{
-			log.mark("test server started at port %d",test_port);
-			done();
-		});
-	} catch (err){
-		done(err);
-	}
-});
+before(()=>start(server,test_port));
+after(()=>stop(server));
 
-afterAll((done)=>{
-	setTimeout(()=>{
-		log.mark("test server ends");
-		server.close((err)=>{
-			done(err);
-		});
-	},1500)
-})
-	
 test('do?a=nothing via GET', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'do?a=nothing');
-		expect(res.status).toBe(200);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
-		const text=await res.text();
-		expect(text).toBe('{"say":"do: a=nothing","method":"GET"}');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'do?a=nothing');
+	assert.equal(res.status,200);
+	assert.equal(res.headers.get('Access-Control-Allow-Origin'),"*");
+	assert.equal(await res.text(),'{"say":"do: a=nothing","method":"GET"}');
 });
-
 
 test('do?a=nothing via POST+LARGE DATA', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890A"});
-		expect(res.status).toBe(400);
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890A"});
+	assert.equal(res.status,400);
+	await res.text();
 });
 
 test('do?a=nothing via POST+SMALL DATA', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"123456789"});
-		expect(res.status).toBe(200);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
-		const text=await res.text();
-		expect(text).toBe('{"say":"do: a=nothing","method":"POST","postbody":"123456789"}');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"123456789"});
+	assert.equal(res.status,200);
+	assert.equal(res.headers.get('Access-Control-Allow-Origin'),"*");
+	assert.equal(await res.text(),'{"say":"do: a=nothing","method":"POST","postbody":"123456789"}');
 });
 
 test('do?a=nothing via POST+EDGEDATA', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890"});
-		expect(res.status).toBe(200);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
-		const text=await res.text();
-		expect(text).toBe('{"say":"do: a=nothing","method":"POST","postbody":"1234567890"}');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'do?a=nothing',{method:"POST",body:"1234567890"});
+	assert.equal(res.status,200);
+	assert.equal(res.headers.get('Access-Control-Allow-Origin'),"*");
+	assert.equal(await res.text(),'{"say":"do: a=nothing","method":"POST","postbody":"1234567890"}');
 });
 
 test('do via GET', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'do?garbage');
-		expect(res.status).toBe(codes.BAD_REQ);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
-		expect(res.statusText).toBe('MISSING PARAM');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'do?garbage');
+	assert.equal(res.status,codes.BAD_REQ);
+	assert.equal(res.headers.get('Access-Control-Allow-Origin'),"*");
+	assert.equal(res.statusText,'MISSING PARAM');
+	await res.text();
 });
 
 test('do?a=addhs via GET', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'do?a=addhs');
-		expect(res.status).toBe(200);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
-		expect(res.headers.get('X-AddH')).toBe('simple');
-		const text=await res.text();
-		expect(text).toBe('do: a=addhs method=GET');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'do?a=addhs');
+	assert.equal(res.status,200);
+	assert.equal(res.headers.get('Access-Control-Allow-Origin'),"*");
+	assert.equal(res.headers.get('X-AddH'),'simple');
+	assert.equal(await res.text(),'do: a=addhs method=GET');
 });
 
 test('do?a=addhj via GET', async () => {
-	expect(async ()=>{
-		let res=await fetch(test_fetch_prefix+'do?a=addhj');
-		expect(res.status).toBe(200);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe("*");
-		expect(res.headers.get('X-AddH')).toBe('json');
-		expect(res.headers.get('Content-Type')).toBe('application/json; charset=UTF-8; custom=data');
-		const text=await res.text();
-		expect(text).toBe('{"say":"do: a=addhj","method":"GET"}');
-	}).not.toThrow();
+	let res=await fetch(test_fetch_prefix+'do?a=addhj');
+	assert.equal(res.status,200);
+	assert.equal(res.headers.get('Access-Control-Allow-Origin'),"*");
+	assert.equal(res.headers.get('X-AddH'),'json');
+	assert.equal(res.headers.get('Content-Type'),'application/json; charset=UTF-8; custom=data');
+	assert.equal(await res.text(),'{"say":"do: a=addhj","method":"GET"}');
 });
-
-
-
-/*
-test('unknown via GET', async (done) => {
-	try {
-		let res=await fetch(test_fetch_prefix+'unknown');
-		expect(res.status).toBe(404);
-		done();
-	} catch (err) {
-		done (err);
-	}
-});
-
-test('hello JSON world via GET', async (done) => {
-	try {
-		let res=await fetch(test_fetch_prefix+'hello_json?who=ease');
-		expect(res.status).toBe(200);
-		expect(res.headers.get("Content-Type")).toBe("application/json; charset=UTF-8");
-		const text=await res.text();
-		expect(text).toBe('{"say":"Hello ease of JSON","method":"GET"}');
-
-		done();
-	} catch (err) {
-		done (err);
-	}
-});
-
-test('hello JSON world via POST', async (done) => {
-	try {
-		let res=await fetch(test_fetch_prefix+'hello_json?who=ease',{method:"POST"});
-		expect(res.status).toBe(404);
-		done();
-	} catch (err) {
-		done (err);
-	}
-});
-
-test('hello world via OPTIONS', async (done) => {
-	try {
-
-		let res=await fetch(test_fetch_prefix+'hello?who=world',{method:"OPTIONS"});
-		expect(res.status).toBe(200);
-		const text=await res.text();
-		expect(text).toBe('');
-		done();
-	} catch (err) {
-		done (err);
-	}
-});
-
-test('hello world via POST', async (done) => {
-	try {
-
-		let res=await fetch(test_fetch_prefix+'hello?who=world',{method:"POST"});
-		expect(res.status).toBe(200);
-		const text=await res.text();
-		expect(text).toBe('Hello world! method: POST');
-		done();
-	} catch (err) {
-		done (err);
-	}
-});
-*/

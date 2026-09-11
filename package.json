@@ -1,6 +1,6 @@
 {
   "name": "danmaru",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "No dependency, convenience  HTTTP/HTTPS server wrapper",
   "main": "index.js",
   "types": "index.d.ts",
@@ -9,7 +9,7 @@
     "type": "git"
   },
   "scripts": {
-    "test": "jest",
+    "test": "tsc -p tsconfig.test.json && node --test test-build/tests/*.test.js",
     "build": "tsc",
     "prepublishOnly": "tsc; jsmin -o index.min.js index.js ; mv index.min.js index.js"
   },
@@ -21,11 +21,8 @@
   "author": "Stoian Ivanov",
   "license": "LGPL-3.0",
   "devDependencies": {
-    "@types/jest": "^29.5.14",
     "@types/node": "^22.15.30",
-    "jest": "^29.7.0",
     "jsmin": "^1.0.1",
-    "ts-jest": "^29.3.4",
     "typescript": "^5.8.3"
   }
 }
