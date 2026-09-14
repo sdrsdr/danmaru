@@ -1,3 +1,18 @@
+// Copyright (c) 2020-2026 Shelly Group SE.
+// Authored by Stoyan Ivanov <stoyan.ivanov@shelly.com>.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU Lesser General Public License version 3 as
+// published by the Free Software Foundation.
+//
+// This library is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+// or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public
+// License for more details.
+//
+// A copy of the GNU Lesser General Public License can be found in the LICENSE
+// file distributed with this library, or at https://www.gnu.org/licenses/
+
 import test, {before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import * as http from 'http';

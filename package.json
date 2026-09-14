@@ -1,6 +1,6 @@
 {
   "name": "danmaru",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "No dependency, convenience  HTTTP/HTTPS server wrapper",
   "main": "index.js",
   "types": "index.d.ts",
@@ -18,11 +18,14 @@
     "HTTPS",
     "server"
   ],
-  "author": "Stoian Ivanov",
+  "author": "Shelly Group SE",
   "license": "LGPL-3.0",
   "devDependencies": {
     "@types/node": "^22.15.30",
     "jsmin": "^1.0.1",
     "typescript": "^5.8.3"
-  }
+  },
+  "contributors": [
+    "Stoyan Ivanov <stoyan.ivanov@shelly.com>"
+  ]
 }

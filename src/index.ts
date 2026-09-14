@@ -1,19 +1,17 @@
-//  
-//   * This file is a part of danmaru https://...
-//   * Copyright (c) 2020 Stoian Ivanov.
-//   
-//   This program is free software: you can redistribute it and/or modify
-//   it under the terms of the GNU Lesser General Public License version 3 
-//   as published by the Free Software Foundation
-//   
-//   This program is distributed in the hope that it will be useful,
-//   but WITHOUT ANY WARRANTY; without even the implied warranty of
-//   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//   GNU Lesser General Public License for more details.
-//   
-//   A copy of the GNU Lesser General Public License can be found at
-//   https://www.gnu.org/licenses
-
+// Copyright (c) 2020-2026 Shelly Group SE.
+// Authored by Stoyan Ivanov <stoyan.ivanov@shelly.com>.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU Lesser General Public License version 3 as
+// published by the Free Software Foundation.
+//
+// This library is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+// or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public
+// License for more details.
+//
+// A copy of the GNU Lesser General Public License can be found in the LICENSE
+// file distributed with this library, or at https://www.gnu.org/licenses/
 
 import util from 'util';
 import { IncomingMessage,ServerResponse,Server as http_Server, OutgoingHttpHeaders } from 'http';
@@ -46,8 +44,6 @@ export interface options_t {
 	//usually send errors are loged in error level, with this option the log is lowered to debug level. Typical uisage  send_error_ignore:['ERR_STREAM_DESTROYED']
 	send_error_ignore?:string[];
 }
-
-
 
 export interface http_action_t {
 	prefix:string;
@@ -479,8 +475,6 @@ let nolog:logger_t={
 	error:nologfunction,
 	mark:nologfunction,
 }
-
-
 
 function simple_response(this:SimpleServerResponse,code:number,data?:any, headers?:OutgoingHttpHeaders, reason?:string):boolean {
 	for (let h in this.auto_headers) if (this.auto_headers.hasOwnProperty(h)){
