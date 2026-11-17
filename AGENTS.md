@@ -50,6 +50,12 @@ npm publish     # prepublishOnly rebuilds and minifies index.js through jsmin
 `npm test` compiles first and runs the **emitted CommonJS**, deliberately: that is the same
 module format the package ships, so the tests exercise what consumers actually load.
 
+The compiler is TypeScript 7 (the native one). Four things it needs that TS5 did not, all in
+`tsconfig.json`: `module`/`moduleResolution` are `node16` (`node` resolution was removed, and
+TS7 insists the two match — emit is still CommonJS because `package.json` has no `"type"`),
+`rootDir` must be explicit or the output lands in `src/`, and `types:["node"]` is required
+because `@types/*` is no longer picked up automatically.
+
 Node's native TypeScript type stripping (`node --test src/tests/*.ts`) does *not* work on
 this source — it rejects the angle-bracket type assertions (`<SimpleServerResponse>resp_`)
 and would reinterpret the typeless `.ts` as ESM. Converting those assertions to `as` syntax
@@ -67,13 +73,21 @@ The order is the thing worth knowing — several surprises come from *when* a st
 3. **Action selection.** First match in array order handles the request completely. A
    per-action `m` that does not list the method simply skips that action and keeps looking
 4. **No match** → the `indexer` callback if set, otherwise `404`
-5. **Body collection** into `req.body_string`; exceeding `max_body_size` marks the request
-   damaged and answers `400`
-6. **`auto_handle_OPTIONS`** → bare `200`. Note this is *after* routing
-7. **`req.full_url`** is built, from the `Host` header when it passes `hostname_re`, else
+5. **`req.full_url`** is built, from the `Host` header when it passes `hostname_re`, else
    from the listening address
-8. **`do()`** is called. With `catch_to_500` a thrown error *or* a rejected promise becomes
+6. **`bodyguard`** → the `options_t` one, then the action's. Fail-closed: anything but `true`
+   (or a promise of `true`) rejects, answering `401` unless the guard answered for itself.
+   A throw or rejection here is *always* caught → `500`, `catch_to_500` or not
+7. **Body collection** into `req.body_string`; exceeding `max_body_size` marks the request
+   damaged and answers `400`
+8. **`auto_handle_OPTIONS`** → bare `200`. Note this is *after* routing
+9. **`do()`** is called. With `catch_to_500` a thrown error *or* a rejected promise becomes
    a `500`
+
+Steps 5 and 6 are the 2.2.0 change. `full_url` moved up from after body collection so a
+bodyguard can use it, which means a `400` for an unparsable url now beats a `400` for an
+oversized body, and an auto-handled `OPTIONS` with an unparsable url now gets `400` rather
+than `200`.
 
 ## Matching modes
 
@@ -90,14 +104,26 @@ The order is the thing worth knowing — several surprises come from *when* a st
 
 - **`allowed_methods` runs before routing**, so `OPTIONS` must be in that list for
   `auto_handle_OPTIONS` to ever fire. That is exactly why `sane_options` includes it
-- **`req.full_url` does not exist during routing** — it is built after body collection, so
-  route selection can only ever look at the raw `req.url` string
+- **`req.full_url` does not exist during routing** — it is built just after the action is
+  picked, so route selection can only ever look at the raw `req.url` string. A `bodyguard`,
+  which runs after that, does get it
+- **The bodyguard is skipped for `OPTIONS`** when `auto_handle_OPTIONS` is on. A CORS
+  preflight carries no credentials, so guarding it would break preflight for every browser
+  client. Same family of surprise as the `allowed_methods` note above
+- **A rejecting bodyguard does not close the socket.** Node dumps the unread body itself, so
+  the client gets a clean `401` and danmaru simply never buffers the body. Deliberate: the
+  alternative is an RST the client may see instead of the response
 - `json_response(code, data)` takes the **code first**. A `.status()`-style call chained
   after the body does not exist here
 - The `indexer` is wrapped in a synthetic action with `prefix: '<<INDEXER>>>'`, so
   `req.action.prefix` looks odd inside it
 - `simple_response` / `json_response` return `write()`'s backpressure boolean, **not** a
   success flag. Real send errors are routed to `error_catcher` as `ERR_REASON_SEND_ERROR`
-  (or logged), never thrown
+  (or logged), never thrown. A send refused by `safe_send` also returns `false`, so it is
+  indistinguishable from backpressure — `error_catcher` is the honest signal
+- **A double send throws `ERR_HTTP_HEADERS_SENT` out of the handler** and, without
+  `catch_to_500`, kills the consumer's process. `safe_send:true` refuses the second send
+  instead. Off by default, because flipping it turns a throw into a silent no-op for anyone
+  relying on the old behaviour; worth proposing as the default in the next major
 - `http_action_cb` returns `void | Promise<any>`, so `return resp.json_response(...)` from a
   non-async handler is a type error — call it, then `return`

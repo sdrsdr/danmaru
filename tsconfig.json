@@ -2,8 +2,8 @@
 	"compilerOptions": {
 
 		"target": "es2019",
-		"module": "commonjs",
-		"moduleResolution": "node",
+		"module": "node16",
+		"moduleResolution": "node16",
 		"esModuleInterop": true,
 
 		"listEmittedFiles":true,
@@ -19,6 +19,8 @@
 		"declaration": true,
 		"noFallthroughCasesInSwitch":true,
 		"lib": ["ES2019"],
+		"types": ["node"],
+		"rootDir": "./src",
 		"outDir": ".",
 	},
 	"include": [

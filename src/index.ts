@@ -40,6 +40,9 @@ export interface options_t {
 	allowed_methods?:string[]; // default is no-filtering;
 	catch_to_500?:boolean; //catch exceptions in http_action_t.do, log in err, respond with error code 500 (if possible)
 	error_catcher?:error_catcher_cb;
+	bodyguard?:bodyguard_cb; //called once request headers are in and the action is picked, before any body is read. Must return true to let the request through
+	safe_send?:boolean; //default false. simple_response() on an already-sent response is refused
+	                    //(logged, routed to error_catcher) instead of throwing ERR_HTTP_HEADERS_SENT
 
 	//usually send errors are loged in error level, with this option the log is lowered to debug level. Typical uisage  send_error_ignore:['ERR_STREAM_DESTROYED']
 	send_error_ignore?:string[];
@@ -53,6 +56,7 @@ export interface http_action_t {
 	exact_match?:boolean; //default false; if true prefix must exact-match,
 	path_match?:boolean; //default false; if true prefix must match the url path: query string ignored, one trailing slash optional. Ignored when exact_match is true
 	error_catcher?:error_catcher_cb;
+	bodyguard?:bodyguard_cb; //runs after options_t.bodyguard, before any body is read. Must return true to let the request through
 }
 
 export const ERR_REASON_NOURL=1;
@@ -65,6 +69,8 @@ export const ERR_REASON_BADURL=7;
 export const ERR_REASON_HANDLING_ERR=8;
 export const ERR_REASON_HTTP2_NOTSUPPORTED=9;
 export const ERR_REASON_SEND_ERROR=10;
+export const ERR_REASON_DOUBLE_SEND=11;
+export const ERR_REASON_BODYGUARD_REJECT=12;
 
 export type ERR_REASON=
 	typeof ERR_REASON_NOURL
@@ -77,6 +83,8 @@ export type ERR_REASON=
 	| typeof ERR_REASON_HANDLING_ERR
 	| typeof ERR_REASON_HTTP2_NOTSUPPORTED
 	| typeof ERR_REASON_SEND_ERROR
+	| typeof ERR_REASON_DOUBLE_SEND
+	| typeof ERR_REASON_BODYGUARD_REJECT
 ;
 
 export interface error_catcher_cb {
@@ -85,6 +93,18 @@ export interface error_catcher_cb {
 
 export interface http_action_cb {
 	(req:CompleteIncomingMessage, resp:SimpleServerResponse) :void|Promise<any>;
+}
+
+/**
+ * Called once the request headers are complete and the action is selected, but
+ * before danmaru commits to reading the body. Return true (or a promise of true)
+ * to let the request through; anything else rejects it, so a guard that forgets
+ * to return blocks rather than lets through.
+ *
+ * req.full_url is already built here, req.body_string is still empty.
+ */
+export interface bodyguard_cb {
+	(req:CompleteIncomingMessage, resp:SimpleServerResponse) :boolean|Promise<boolean>;
 }
 
 export interface CompleteIncomingMessage extends IncomingMessage {
@@ -110,6 +130,7 @@ export interface SimpleServerResponse extends ServerResponse {
 	req:IncomingMessage|CompleteIncomingMessage;
 	send_error_ignore?:string[];
 	error_catcher?:error_catcher_cb;
+	safe_send?:boolean;
 }
 
 export interface logger_t {
@@ -242,6 +263,8 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	const catch_to_500=options?.catch_to_500??false;
 	const global_err_catcher=options?.error_catcher;
 	const send_error_ignore=options?.send_error_ignore;
+	const global_bodyguard=options?.bodyguard;
+	const safe_send=options?.safe_send??false;
 
 	let default_base:string=scheme+'unknown:0';
 	server.on("listening",()=>{
@@ -264,7 +287,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 	})
 
 	server.on('request',(early_req:IncomingMessage,resp_:ServerResponse)=>{
-		let resp=mk_SimpleServerResponse(resp_,early_req,log,auto_headers,send_error_ignore,global_err_catcher);
+		let resp=mk_SimpleServerResponse(resp_,early_req,log,auto_headers,send_error_ignore,global_err_catcher,safe_send);
 		if (early_req.url==undefined || early_req.method==undefined) {
 			const msg="server.on 'request' but no .url or .method ?!";
 			log.error(msg);
@@ -347,89 +370,156 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 			cleanup_CompleteIncomingMessage(req);
 		});
 
-		req.on("data",(chunk:any)=>{
-			if (typeof chunk=='string') {
-				req.body_string+=chunk;
+		//full_url is built here, before any body is read, so a bodyguard can use it.
+		//it only needs the headers, which are already complete at this point
+		let hn=req.headers.host;
+		if (typeof(hn)=='string' && hn.match(hostname_re)===null) {
+			hn=undefined;
+		}
+
+		try {
+			let url=req.url;
+			if (!url.startsWith('/')) url='/'+url;
+			if (hn==undefined || hn.trim()=='') {
+				req.full_url=new URL(default_base+req.url);
 			} else {
-				req.body_string+=String(chunk);
+				req.full_url=new URL(scheme+hn+req.url);
 			}
-			if (req.body_string.length>max_body_size) {
-				req.is_damaged=true;
-				const msg=util.format("%s to %s request reached maximal allowed body size of ",early_req.method,early_req.url,max_body_size);
-				log.error(msg);
-				if (global_err_catcher) global_err_catcher(ERR_REASON_OVERSIZED,req,resp,msg);
-				if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_OVERSIZED,req,resp,msg);
-				
-				resp.indicate_error_if_possible(codes.BAD_REQ);
-				cleanup_CompleteIncomingMessage(req);
-				req.destroy(new Error("request body size reached "+req.body_string+" but maximum allowed is "+max_body_size));
-			}
-		});
-		req.on("end",()=>{
-			if (req.is_damaged) {
-				log.debug("%s to %s ended damaged so we just ignore it",early_req.method,early_req.url);
-				return;
-			}
-			if (auto_handle_OPTIONS && req.method=="OPTIONS") {
-				log.debug("OPTIONS to %s will be auto handled! body len:%d",early_req.url,req.body_string.length);
-				resp.simple_response(codes.OK);
-				cleanup_CompleteIncomingMessage(req);
-				return;
-			}
+		} catch (e) {
+			req.is_damaged=true;
+			const msg=util.format("method:[%s] uri[%s] host:[%s] parsing full_url got err",early_req.method,early_req.url,hn,e);
+			log.error(msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_BADURL,req,resp,msg);
+			if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_BADURL,req,resp,msg);
 
-			let hn=req.headers.host;
-			if (typeof(hn)=='string' && hn.match(hostname_re)===null) {
-				hn=undefined;
-			}
-			
-			try {
-				let url=req.url;
-				if (!url.startsWith('/')) url='/'+url;
-				if (hn==undefined || hn.trim()=='') {
-					req.full_url=new URL(default_base+req.url);
-				} else {
-					req.full_url=new URL(scheme+hn+req.url);
-				}
-			} catch (e) {
-				req.is_damaged=true;
-				const msg=util.format("method:[%s] uri[%s] host:[%s] parsing full_url got err",early_req.method,early_req.url,hn,e);
-				log.error(msg);
-				if (global_err_catcher) global_err_catcher(ERR_REASON_BADURL,req,resp,msg);
-				if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_BADURL,req,resp,msg);
-
-				resp.indicate_error_if_possible(codes.BAD_REQ);
-				cleanup_CompleteIncomingMessage(req);
-				return;
-			}
-
-			log.debug("%s to %s complete request is ready for handling! body len:%d",req.method,early_req.url,req.body_string.length);
-			if (catch_to_500) {
-				try {
-					let prom=selected_action.do(req,resp);
-					if (prom) {
-						prom.catch((e)=>{
-							log.error("%s to %s promise from .do callback got rejected ",early_req.method,early_req.url,e);
-							if (!resp.headersSent) {
-								resp.simple_response(codes.INTERNAL_ERR);
-							} else {
-								if (!resp.finished) resp.end();
-							}
-						});
-					}
-				} catch(e){
-					const msg=util.format("%s to %s calling .do callback got err",early_req.method,early_req.url,e);
-					log.error(msg);
-
-					if (global_err_catcher) global_err_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
-					if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
-	
-					resp.indicate_error_if_possible(codes.INTERNAL_ERR);
-				}
-			} else {
-				selected_action.do(req,resp);
-			}
+			resp.indicate_error_if_possible(codes.BAD_REQ);
 			cleanup_CompleteIncomingMessage(req);
-		});
+			return;
+		}
+
+		//body collection is deferred so a bodyguard can reject before we commit to reading it
+		const start_body_collection=()=>{
+			req.on("data",(chunk:any)=>{
+				if (typeof chunk=='string') {
+					req.body_string+=chunk;
+				} else {
+					req.body_string+=String(chunk);
+				}
+				if (req.body_string.length>max_body_size) {
+					req.is_damaged=true;
+					const msg=util.format("%s to %s request reached maximal allowed body size of ",early_req.method,early_req.url,max_body_size);
+					log.error(msg);
+					if (global_err_catcher) global_err_catcher(ERR_REASON_OVERSIZED,req,resp,msg);
+					if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_OVERSIZED,req,resp,msg);
+				
+					resp.indicate_error_if_possible(codes.BAD_REQ);
+					cleanup_CompleteIncomingMessage(req);
+					req.destroy(new Error("request body size reached "+req.body_string+" but maximum allowed is "+max_body_size));
+				}
+			});
+			req.on("end",()=>{
+				if (req.is_damaged) {
+					log.debug("%s to %s ended damaged so we just ignore it",early_req.method,early_req.url);
+					return;
+				}
+				if (auto_handle_OPTIONS && req.method=="OPTIONS") {
+					log.debug("OPTIONS to %s will be auto handled! body len:%d",early_req.url,req.body_string.length);
+					resp.simple_response(codes.OK);
+					cleanup_CompleteIncomingMessage(req);
+					return;
+				}
+
+				log.debug("%s to %s complete request is ready for handling! body len:%d",req.method,early_req.url,req.body_string.length);
+				if (catch_to_500) {
+					try {
+						let prom=selected_action.do(req,resp);
+						if (prom) {
+							prom.catch((e)=>{
+								log.error("%s to %s promise from .do callback got rejected ",early_req.method,early_req.url,e);
+								if (!resp.headersSent) {
+									resp.simple_response(codes.INTERNAL_ERR);
+								} else {
+									if (!resp.finished) resp.end();
+								}
+							});
+						}
+					} catch(e){
+						const msg=util.format("%s to %s calling .do callback got err",early_req.method,early_req.url,e);
+						log.error(msg);
+
+						if (global_err_catcher) global_err_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
+						if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
+	
+						resp.indicate_error_if_possible(codes.INTERNAL_ERR);
+					}
+				} else {
+					selected_action.do(req,resp);
+				}
+				cleanup_CompleteIncomingMessage(req);
+			});
+		};
+
+		const action_bodyguard=selected_action.bodyguard;
+
+		const bodyguard_rejected=(which:string)=>{
+			const msg=util.format("%s to %s rejected by %s bodyguard",early_req.method,early_req.url,which);
+			log.info(msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_BODYGUARD_REJECT,req,resp,msg);
+			if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_BODYGUARD_REJECT,req,resp,msg);
+			//a guard that answered for itself keeps its own code: indicate_error_if_possible checks headersSent
+			resp.indicate_error_if_possible(codes.UNAUTHORIZED);
+			cleanup_CompleteIncomingMessage(req);
+		};
+
+		//a throwing guard is always caught, catch_to_500 or not: letting it escape would leave
+		//the request with no data/end listener attached, which is a hung socket rather than a 500
+		const bodyguard_failed=(which:string,e:any)=>{
+			const msg=util.format("%s to %s %s bodyguard got err %o",early_req.method,early_req.url,which,e);
+			log.error(msg);
+			if (global_err_catcher) global_err_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
+			if (selected_action.error_catcher) selected_action.error_catcher(ERR_REASON_HANDLING_ERR,req,resp,msg);
+			resp.indicate_error_if_possible(codes.INTERNAL_ERR);
+			cleanup_CompleteIncomingMessage(req);
+		};
+
+		const run_bodyguard=(guard:bodyguard_cb,which:string,next:()=>void)=>{
+			let r:boolean|Promise<boolean>;
+			try {
+				r=guard(req,resp);
+			} catch(e) {
+				bodyguard_failed(which,e);
+				return;
+			}
+			if (r===true) { //sync pass stays in this tick, exactly as it was before bodyguards existed
+				next();
+				return;
+			}
+			if (r==undefined || typeof (<any>r).then!='function') { //false, or a guard that forgot to return
+				bodyguard_rejected(which);
+				return;
+			}
+			(<Promise<boolean>>r).then((ok)=>{
+				if (req.destroyed || resp.writableEnded) return; //client gave up while we were deciding
+				if (ok===true) next(); else bodyguard_rejected(which);
+			},(e)=>{
+				if (req.destroyed || resp.writableEnded) return;
+				bodyguard_failed(which,e);
+			});
+		};
+
+		if (auto_handle_OPTIONS && req.method=="OPTIONS") {
+			//a CORS preflight carries no auth headers, so guarding it would break preflight for everybody
+			start_body_collection();
+		} else if (global_bodyguard!=undefined) {
+			run_bodyguard(global_bodyguard,"global",()=>{
+				if (action_bodyguard!=undefined) run_bodyguard(action_bodyguard,"action",start_body_collection);
+				else start_body_collection();
+			});
+		} else if (action_bodyguard!=undefined) {
+			run_bodyguard(action_bodyguard,"action",start_body_collection);
+		} else {
+			start_body_collection();
+		}
 	});
 	return true;
 }
@@ -439,7 +529,7 @@ export function compose(server:http_Server|https_Server, http_actions:http_actio
 *  INTERNALS
 ***************************/
 
-function mk_SimpleServerResponse(resp_:ServerResponse, req:IncomingMessage, logger:logger_t,auto_headers:OutgoingHttpHeaders|undefined, error_ignore:string[]|undefined, error_catcher:error_catcher_cb|undefined):SimpleServerResponse {
+function mk_SimpleServerResponse(resp_:ServerResponse, req:IncomingMessage, logger:logger_t,auto_headers:OutgoingHttpHeaders|undefined, error_ignore:string[]|undefined, error_catcher:error_catcher_cb|undefined, safe_send:boolean):SimpleServerResponse {
 	let resp:SimpleServerResponse=<SimpleServerResponse>resp_;
 	resp.logger=logger;
 	resp.simple_response=simple_response;
@@ -448,6 +538,7 @@ function mk_SimpleServerResponse(resp_:ServerResponse, req:IncomingMessage, logg
 	resp.indicate_error_if_possible=indicate_error_if_possible;
 	resp.send_error_ignore=error_ignore;
 	resp.error_catcher=error_catcher;
+	resp.safe_send=safe_send;
 	resp.req=req;
 	return resp;
 }
@@ -477,6 +568,13 @@ let nolog:logger_t={
 }
 
 function simple_response(this:SimpleServerResponse,code:number,data?:any, headers?:OutgoingHttpHeaders, reason?:string):boolean {
+	if (this.safe_send && this.headersSent) {
+		//refuse rather than let node throw ERR_HTTP_HEADERS_SENT out of the handler.
+		//strictly a no-op: the first sender owns the response, so we do not end it here either
+		if (this.logger!=undefined) this.logger.error("resp to %s double send, code %d refused",this.req_url,code);
+		if (this.error_catcher) this.error_catcher(ERR_REASON_DOUBLE_SEND,this.req,this,"double send refused");
+		return false;
+	}
 	for (let h in this.auto_headers) if (this.auto_headers.hasOwnProperty(h)){
 		this.setHeader(h,<any>(this.auto_headers[h]));
 	}
